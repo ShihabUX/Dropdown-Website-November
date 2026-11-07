@@ -71,7 +71,7 @@ ZIP extract করে ভেতরের public folder ও vercel.json সহ �
 
 The site remains plain HTML/CSS/JavaScript with no runtime dependencies and no build step. `public/motion.js` progressively enhances the page with the Web Animations API and IntersectionObserver. CSS motion tokens live at the end of `public/style.css`.
 
-- Hero sequence completes in about one second; section groups reveal once. No parallax or continuous decorative animation.
+- Hero sequence completes in about one second; section groups reveal once. No parallax. Optional ambient artwork drift and architectural background accents run slowly while visible; a footer pause control persists the visitor’s preference.
 - Filters cancel stale transitions, update `aria-pressed`, remove hidden rows from keyboard navigation and reposition visible rows.
 - Native service/FAQ details animate measured panel heights; resizing or reduced-motion changes settle to intrinsic dimensions. Native details remain usable without JavaScript.
 - Header/progress updates are scheduled once per animation frame; scroll remains native.
@@ -104,3 +104,18 @@ TEST_URL=http://127.0.0.1:8090 node scripts/test-motion.cjs
 If Playwright or Chromium are installed outside Node's normal search path, set `PLAYWRIGHT_MODULE` to the Playwright module path and `CHROMIUM_PATH` to the Chromium executable. The suite checks 390/768/1440 px layouts, filters and rapid clicks, all service panels, deep links, FAQ keyboard operation, downloaded brief contents, live reduced-motion changes, no-JavaScript reading and animation-API fallback. Screenshots are written to `/tmp`.
 
 Validated in headless Chromium, including responsive screenshots. Physical iOS/Android devices, Safari/Firefox, assistive-technology reading and measured frame-rate/performance scores have not been tested. Vercel settings remain unchanged: framework Other, empty build/install commands, output `public`. No deployment is required to review these local changes.
+
+
+### Vector icons and ambient motion
+
+Arrow icons are inline SVG in controls and an SVG CSS mask for service bullets. They inherit the brand colors and never depend on an operating system’s emoji font. The service renderer preserves the same icons when regenerating content.
+
+Ambient motion uses independent `translate` animations so it does not compete with entrance transforms. Artwork travels less than 8px on desktop and less than 4px on small/touch screens; background accents travel at most 12px. Loops pause offscreen, in hidden tabs, or through the footer’s Pause motion control. Reduced motion cancels them completely. No new dependencies or Vercel settings are needed.
+
+For a portable browser review without publishing:
+
+```sh
+node scripts/create-preview.mjs /tmp/dropdown-preview.html
+```
+
+The resulting HTML embeds styles, scripts and original image assets. Download/open it in a browser, or serve its directory locally if your browser restricts local files. This is a preview artifact, not an additional deployment source.

@@ -76,7 +76,11 @@
         if (!animation) { state.finish(); return; }
         state.animation = animation;
         animation.finished.then(() => { if (state.animation === animation) state.finish(); }, () => {});
-        if (open && start === 0) animate(panel.firstElementChild, [{ opacity: .4, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: tokens.interface });
+        if (open && start === 0) {
+          animate(panel.firstElementChild, [{ opacity: .4, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: tokens.interface });
+          // Related list items settle together; no text splitting or content delay.
+          panel.querySelectorAll('li').forEach((item, index) => enter(item, Math.min(index, 5) * 35, 6));
+        }
       };
       summary.addEventListener('click', event => { event.preventDefault(); state.set(!state.desired); });
       details.addEventListener('toggle', () => {
@@ -146,6 +150,8 @@
     groups.set(launch, [...launch.querySelectorAll('.eyebrow, .launch-line, figure')]);
     const steps = document.querySelector('.steps');
     groups.set(steps, [...steps.children]);
+    const strip = document.querySelector('.strip');
+    groups.set(strip, [...strip.querySelectorAll('span')]);
     if (typeof IntersectionObserver !== 'function') return;
     const observer = new IntersectionObserver(entries => {
       entries.forEach(entry => {
@@ -177,6 +183,73 @@
     animate(document.querySelector('.hero > img'), [{ opacity: .2, transform: 'translateY(18px)' }, { opacity: 1, transform: 'none' }], { delay: 300, duration: 700 });
   }
 
+  function ambientMotion() {
+    const toggle = document.querySelector('.motion-toggle');
+    if (!toggle || typeof Element.prototype.animate !== 'function' || typeof IntersectionObserver !== 'function') return;
+    const compact = matchMedia('(max-width: 767px), (pointer: coarse)');
+    const loops = new Map();
+    let paused = false;
+    try { paused = localStorage.getItem('dropdown-ambient-paused') === 'true'; } catch { /* Private browsing still works. */ }
+    const targets = document.querySelectorAll('.ambient-plane, .ambient-rail, .hero > img, .launch figure img, .brand-image > img');
+    function refresh() {
+      const disabled = paused || preference.matches || document.hidden;
+      loops.forEach(state => {
+        if (preference.matches) {
+          state.animation?.cancel();
+          state.animation = null;
+          state.element.style.willChange = '';
+          return;
+        }
+        if (!disabled && state.visible) {
+          if (!state.animation) {
+            const distance = compact.matches ? 5 : 12;
+            const background = state.element.matches('.ambient-plane, .ambient-rail');
+            const frames = background
+              ? [{ translate: `-${distance}px 0px` }, { translate: `${distance}px -${distance}px` }]
+              : [{ translate: '0px 0px' }, { translate: `0px -${distance * .65}px` }];
+            try {
+              // Independent translate leaves entrance transform/opacity untouched.
+              state.animation = state.element.animate(frames, {
+                duration: background ? 14000 : 11000, iterations: Infinity,
+                direction: 'alternate', easing: 'ease-in-out'
+              });
+              state.animation.id = 'ambient-motion';
+            } catch { return; }
+          }
+          state.element.style.willChange = 'translate';
+          state.animation.play();
+        } else {
+          state.animation?.pause();
+          state.element.style.willChange = '';
+        }
+      });
+      toggle.disabled = preference.matches;
+      toggle.setAttribute('aria-pressed', String(paused || preference.matches));
+      toggle.setAttribute('aria-label', preference.matches ? 'Ambient motion disabled by reduced motion preference' : 'Pause ambient motion');
+      toggle.querySelector('span').textContent = preference.matches ? 'Motion reduced' : paused ? 'Resume motion' : 'Pause motion';
+      toggle.querySelector('path').setAttribute('d', paused ? 'M4 2l10 6-10 6z' : 'M4 3h2v10H4zm6 0h2v10h-2z');
+    }
+    targets.forEach(element => loops.set(element, { element, animation: null, visible: false }));
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => { loops.get(entry.target).visible = entry.isIntersecting; });
+      refresh();
+    }, { threshold: 0 });
+    targets.forEach(element => observer.observe(element));
+    toggle.hidden = false;
+    toggle.addEventListener('click', () => {
+      paused = !paused;
+      try { localStorage.setItem('dropdown-ambient-paused', String(paused)); } catch { /* Optional preference persistence. */ }
+      refresh();
+    });
+    preference.addEventListener('change', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    compact.addEventListener('change', () => {
+      loops.forEach(state => { state.animation?.cancel(); state.animation = null; });
+      refresh();
+    });
+    refresh();
+  }
+
   const header = document.querySelector('header');
   const progress = document.querySelector('.progress');
   let frame = 0;
@@ -200,4 +273,5 @@
   enhanceDetails();
   revealSections();
   hero();
+  ambientMotion();
 })();
