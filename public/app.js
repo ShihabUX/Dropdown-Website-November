@@ -1,5 +1,55 @@
-const escapeHTML=s=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-fetch('services.json').then(r=>{if(!r.ok)throw Error();return r.json()}).then(services=>{const list=document.querySelector('#service-list');services.forEach((s,i)=>{const el=document.createElement('details');el.className='service';el.id='service-'+i;el.dataset.category=[0,1,5].includes(i)?'launch':[2,3,4].includes(i)?'grow':'systems';el.innerHTML=`<summary><span class="num">0${i+1}</span><h3>${escapeHTML(s.name)}</h3><span class="price">${i===0?'Launch offer':'From'} ${s.price}</span><span class="plus" aria-hidden="true">+</span></summary><div class="service-body"><div><span class="eyebrow">${i>5?'CUSTOM SOLUTION':'THE OPPORTUNITY'}</span><h4>${escapeHTML(s.desc)}</h4><p>${escapeHTML(s.example||'Monthly content planning and creative direction for a consistent brand presence.')}</p><h4>${i===0?'Launch offer':'Starting at'} ${s.price}</h4><p>${escapeHTML(s.note)}</p>${s.timeline?'<p><strong>Timeline</strong><br>'+escapeHTML(s.timeline)+'</p>':''}<a class="button choose" data-index="${i}" href="#brief">Plan this project <span>↗</span></a></div><div><span class="eyebrow">${i>5?'POSSIBLE MODULES · AGREED TO SCOPE':'WHAT’S INCLUDED'}</span><ul>${s.items.map(x=>'<li>'+escapeHTML(x)+'</li>').join('')}</ul><p><strong>What we need from you</strong><br>${escapeHTML(s.need)}</p></div></div>`;list.append(el);const opt=document.createElement('option');opt.textContent=s.name;document.querySelector('#brief-service').append(opt)});list.addEventListener('click',e=>{const link=e.target.closest('.choose');if(link)document.querySelector('#brief-service').value=services[+link.dataset.index].name});function hash(){const el=document.getElementById(location.hash.slice(1));if(el?.classList.contains('service')){document.querySelector('[data-filter="all"]').click();el.open=true;el.scrollIntoView({block:'start'})}}window.addEventListener('hashchange',hash);hash()}).catch(()=>{document.querySelector('#service-list').innerHTML='<p>Service details could not load. Please refresh the page.</p>'});
-document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('[data-filter]').forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b))});document.querySelectorAll('.service').forEach(s=>s.hidden=b.dataset.filter!=='all'&&s.dataset.category!==b.dataset.filter)}));
-document.querySelector('#brief-form').addEventListener('submit',e=>{e.preventDefault();const data=new FormData(e.target);const text=`DROPDOWN DIGITAL — PROJECT BRIEF\n\nName: ${data.get('name')}\nBusiness: ${data.get('business')}\nService: ${data.get('service')}\n\nGoal:\n${data.get('goal')}\n\nPrepared for a free discovery consultation. This brief has not been sent. Scope, pricing and timeline are subject to agreement.`;const url=URL.createObjectURL(new Blob([text],{type:'text/plain'}));const a=document.createElement('a');a.href=url;a.download='dropdown-digital-project-brief.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);document.querySelector('#form-status').textContent='Your brief is ready to download. No inquiry has been sent.'});
-const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;if(!reduced){const observer=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.remove('pending');observer.unobserve(e.target)}}),{threshold:.1});document.querySelectorAll('.reveal').forEach(e=>{e.classList.add('pending');observer.observe(e)})}addEventListener('scroll',()=>{const height=document.documentElement.scrollHeight-innerHeight;document.querySelector('.progress').style.width=(height?scrollY/height*100:0)+'%'},{passive:true});
+/* Core interactions work independently of motion enhancement. */
+const list = document.querySelector('#service-list');
+const rows = [...list.querySelectorAll('.service')];
+const filters = [...document.querySelectorAll('[data-filter]')];
+function filterServices(category, instant = false) {
+  if (window.SiteMotion) return SiteMotion.filter(category, instant);
+  filters.forEach(button => {
+    const active = button.dataset.filter === category;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  rows.forEach(row => { row.hidden = category !== 'all' && row.dataset.category !== category; });
+  return Promise.resolve();
+}
+filters.forEach(button => {
+  button.setAttribute('aria-pressed', String(button.classList.contains('active')));
+  button.addEventListener('click', () => filterServices(button.dataset.filter));
+});
+list.addEventListener('click', event => {
+  const link = event.target.closest('.choose');
+  if (link) document.querySelector('#brief-service').value = link.closest('.service').querySelector('h3').textContent;
+});
+function revealHash() {
+  const id = location.hash.slice(1);
+  const details = document.getElementById(id);
+  if (!details?.classList.contains('service')) return;
+  // Instant filtering/opening avoids competing layout and anchor animations.
+  filterServices('all', true);
+  if (window.SiteMotion) SiteMotion.open(details);
+  else details.open = true;
+  requestAnimationFrame(() => details.scrollIntoView({ block: 'start' }));
+}
+addEventListener('hashchange', revealHash);
+addEventListener('popstate', revealHash);
+// Clicking the same deep link again must reveal it even if the filter changed.
+document.addEventListener('click', event => {
+  const link = event.target.closest('a[href^="#service-"]');
+  if (link && link.hash === location.hash) revealHash();
+});
+revealHash();
+
+document.querySelector('#brief-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const data = new FormData(event.target);
+  const text = `DROPDOWN DIGITAL — PROJECT BRIEF\n\nName: ${data.get('name')}\nBusiness: ${data.get('business')}\nService: ${data.get('service')}\n\nGoal:\n${data.get('goal')}\n\nPrepared for a free discovery consultation. This brief has not been sent. Scope, pricing and timeline are subject to agreement.`;
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'dropdown-digital-project-brief.txt';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const status = document.querySelector('#form-status');
+  status.textContent = 'Your brief is ready to download. No inquiry has been sent.';
+  window.SiteMotion?.enter(status, 0, 4);
+});
