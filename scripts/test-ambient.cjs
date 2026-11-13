@@ -1,10 +1,31 @@
-// Optional browser QA for vector icons and ambient-motion controls.
-const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');const assert=require('node:assert/strict');
-(async()=>{const b=await chromium.launch({executablePath:process.env.CHROMIUM_PATH || undefined,args:['--no-sandbox']});for(const width of [390,768,1440]){const p=await b.newPage({viewport:{width,height:900}});const errors=[];p.on('pageerror',e=>errors.push(e.message));await p.goto(process.env.TEST_URL || 'http://127.0.0.1:8090');await p.waitForTimeout(1200);
-assert.equal(await p.locator('.nav-cta svg').count(),1);assert(await p.evaluate(()=>!/[↗↘↑]/.test(document.body.textContent)));assert(await p.evaluate(()=>document.getAnimations().some(a=>a.id==='ambient-motion'&&a.playState==='running')));
-const start=await p.locator('.hero > img').evaluate(e=>getComputedStyle(e).translate);await p.waitForTimeout(500);assert.notEqual(await p.locator('.hero > img').evaluate(e=>getComputedStyle(e).translate),start);
-await p.screenshot({path:`/tmp/ambient-hero-${width}.png`});await p.locator('#service-0 summary').click();await p.waitForTimeout(900);await p.locator('#service-0 .service-body ul').scrollIntoViewIfNeeded();await p.screenshot({path:`/tmp/ambient-service-${width}.png`});
-assert(await p.locator('.service-body li').first().evaluate(e=>getComputedStyle(e,'::before').maskImage.includes('svg')));assert(await p.locator('.hero > img').evaluate(e=>e.getAnimations().filter(a=>a.id==='ambient-motion').every(a=>a.playState!=='running')));
-await p.locator('footer').scrollIntoViewIfNeeded();await p.waitForTimeout(800);await p.locator('.motion-toggle').click();await p.waitForTimeout(100);assert(await p.evaluate(()=>document.getAnimations().filter(a=>a.id==='ambient-motion').every(a=>a.playState==='paused')));
-await p.reload();assert.equal(await p.locator('.motion-toggle').getAttribute('aria-pressed'),'true');await p.locator('.motion-toggle').click();await p.emulateMedia({reducedMotion:'reduce'});await p.waitForTimeout(100);assert.equal(await p.evaluate(()=>document.getAnimations().filter(a=>a.id==='ambient-motion').length),0);assert(await p.locator('.motion-toggle').isDisabled());assert.deepEqual(errors,[]);console.log('PASS',width,'vector icons, ambient movement, offscreen pause, pause persistence, reduced motion');await p.close()}
-await b.close()})().catch(e=>{console.error(e);process.exit(1)});
+// Regression checks: finite effects, footer identity, client links and reduced motion.
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+const assert=require('node:assert/strict');
+const base=process.env.TEST_URL||'http://127.0.0.1:8094';
+(async()=>{const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||undefined,args:['--no-sandbox']});
+for(const width of [390,768,1440]){
+ const page=await browser.newPage({viewport:{width,height:900}});const errors=[];
+ page.on('pageerror',e=>errors.push(e.message));page.on('response',r=>{if(r.status()>=400)errors.push(`${r.status()} ${r.url()}`)});
+ await page.goto(base);await page.waitForTimeout(1400);
+ assert.equal(await page.locator('.motion-toggle').count(),0);
+ assert(await page.evaluate(()=>document.getAnimations().every(a=>a.effect.getTiming().iterations!==Infinity)));
+ await page.waitForTimeout(3300);
+ assert.equal(await page.locator('.hero-depth > img').evaluate(e=>e.getAnimations().filter(a=>a.playState==='running').length),0);
+ assert.equal(await page.locator('.client-card').count(),4);
+ const expected=['https://wearmono.shop','https://diffoclothing.com/','https://nogoressetials.com/','https://sunlightdyeing.app/'];
+ assert.deepEqual(await page.locator('.client-link').evaluateAll(els=>els.map(e=>e.getAttribute('href'))),expected);
+ assert.equal(await page.locator('.client-review').count(),0);
+ await page.locator('#clients').evaluate(e=>e.scrollIntoView({block:'start',behavior:'instant'}));await page.waitForTimeout(1000);await page.screenshot({path:`/tmp/clients-${width}.png`});
+ await page.locator('footer').scrollIntoViewIfNeeded();await page.waitForTimeout(900);
+ const logo=page.locator('footer .wordmark img');assert((await logo.getAttribute('src')).endsWith('dropdown-digital-logo-white.svg'));
+ assert(await logo.evaluate(e=>e.complete&&e.naturalWidth===416));
+ assert.equal(await page.locator('footer .wordmark').evaluate(e=>getComputedStyle(e).backgroundColor),'rgba(0, 0, 0, 0)');
+ const box=await logo.boundingBox();assert(Math.abs(box.width/box.height-416/65)<.02);
+ assert.equal(await page.locator('header .wordmark img').getAttribute('src'),'assets/dropdown-digital-logo-header.svg');
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+ await page.screenshot({path:`/tmp/footer-${width}.png`});
+ await page.emulateMedia({reducedMotion:'reduce'});await page.waitForTimeout(100);
+ assert.equal(await page.locator('.strip-track').evaluate(e=>getComputedStyle(e).transform),'none');
+ assert.equal(await page.evaluate(()=>document.getAnimations().filter(a=>a.playState==='running').length),0);
+ assert.deepEqual(errors,[]);console.log(`PASS ${width}px: finite motion, footer white logo/transparency, four exact client links, no fabricated reviews, reduced motion`);await page.close();
+}await browser.close()})().catch(e=>{console.error(e);process.exit(1)});

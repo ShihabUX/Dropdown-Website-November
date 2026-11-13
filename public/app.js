@@ -18,7 +18,7 @@ filters.forEach(button => {
 });
 list.addEventListener('click', event => {
   const link = event.target.closest('.choose');
-  if (link) document.querySelector('#brief-service').value = link.closest('.service').querySelector('h3').textContent;
+  if (link) document.querySelector('#inquiry-service').value = link.closest('.service').querySelector('h3').textContent;
 });
 function revealHash() {
   const id = location.hash.slice(1);
@@ -39,17 +39,54 @@ document.addEventListener('click', event => {
 });
 revealHash();
 
-document.querySelector('#brief-form').addEventListener('submit', event => {
+const inquiryForm = document.querySelector('#inquiry-form');
+const submitButton = inquiryForm.querySelector('button[type="submit"]');
+const submitLabel = submitButton.querySelector('.submit-label');
+const formStatus = document.querySelector('#form-status');
+let submitting = false;
+let submissionId = '';
+submitButton.disabled = false;
+inquiryForm.addEventListener('submit', async event => {
   event.preventDefault();
-  const data = new FormData(event.target);
-  const text = `DROPDOWN DIGITAL — PROJECT BRIEF\n\nName: ${data.get('name')}\nBusiness: ${data.get('business')}\nService: ${data.get('service')}\n\nGoal:\n${data.get('goal')}\n\nPrepared for a free discovery consultation. This brief has not been sent. Scope, pricing and timeline are subject to agreement.`;
-  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = 'dropdown-digital-project-brief.txt';
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  const status = document.querySelector('#form-status');
-  status.textContent = 'Your brief is ready to download. No inquiry has been sent.';
-  window.SiteMotion?.enter(status, 0, 4);
+  if (submitting || !inquiryForm.reportValidity()) return;
+  if (!/^https?:$/.test(location.protocol)) {
+    formStatus.textContent = 'Please open the website to send your inquiry. This downloaded preview cannot submit it.';
+    return;
+  }
+  submitting = true;
+  submitButton.disabled = true;
+  submitLabel.textContent = 'Sending…';
+  inquiryForm.setAttribute('aria-busy', 'true');
+  formStatus.textContent = 'Sending your inquiry…';
+  formStatus.dataset.state = 'pending';
+  submissionId ||= globalThis.crypto?.randomUUID?.() || '';
+  const payload = {...Object.fromEntries(new FormData(inquiryForm)), submissionId};
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch('/api/inquiry', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload), signal: controller.signal
+    });
+    const result = await response.json();
+    if (!response.ok || result.ok !== true) {
+      formStatus.textContent = typeof result.message === 'string' ? result.message : 'We couldn’t confirm your inquiry was saved. Please try again.';
+      formStatus.dataset.state = 'error';
+      return;
+    }
+    formStatus.textContent = 'Thank you. Your inquiry has been received. We’ll contact you using the details you provided.';
+    formStatus.dataset.state = 'success';
+    inquiryForm.reset();
+    submissionId = '';
+    window.SiteMotion?.enter(formStatus, 0, 4);
+  } catch {
+    formStatus.textContent = 'We couldn’t confirm your inquiry was saved. Your entries are still here. Please check your connection and try again.';
+    formStatus.dataset.state = 'error';
+  } finally {
+    clearTimeout(timeout);
+    submitting = false;
+    submitButton.disabled = false;
+    submitLabel.textContent = 'Send inquiry';
+    inquiryForm.removeAttribute('aria-busy');
+  }
 });

@@ -29,6 +29,7 @@
     animations.clear();
   }
   preference.addEventListener('change', () => { if (preference.matches) settle(); });
+  document.addEventListener('motionpreferencechange', () => { if (preference.matches) settle(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) settle(); });
 
   function enhanceDetails(root = document) {
@@ -105,6 +106,7 @@
   let filterVersion = 0;
   let filterAnimations = [];
   async function filter(category, instant = false) {
+    scenes?.finishRows();
     const version = ++filterVersion;
     filterAnimations.forEach(animation => animation?.cancel());
     filterAnimations = [];
@@ -143,124 +145,65 @@
     });
   }
 
-  function revealSections() {
-    const groups = new Map();
-    document.querySelectorAll('.intro, .expertise .section-top, .manifesto .wrap, .approach .section-top, .brand-image, .faq, .brief, footer').forEach(el => groups.set(el, [el]));
-    const launch = document.querySelector('.launch');
-    groups.set(launch, [...launch.querySelectorAll('.eyebrow, .launch-line, figure')]);
-    const steps = document.querySelector('.steps');
-    groups.set(steps, [...steps.children]);
-    const strip = document.querySelector('.strip');
-    groups.set(strip, [...strip.querySelectorAll('span')]);
-    if (typeof IntersectionObserver !== 'function') return;
-    const observer = new IntersectionObserver(entries => {
-      entries.forEach(entry => {
-        if (!entry.isIntersecting) return;
-        observer.unobserve(entry.target);
-        groups.get(entry.target)?.forEach((element, index) => enter(element, index * tokens.stagger));
-      });
-    }, { threshold: .08 });
-    groups.forEach((elements, group) => {
-      // Near-viewport content needs no reveal delay, including restored scroll positions.
-      const box = group.getBoundingClientRect();
-      if (box.top < innerHeight + 32) return;
-      observer.observe(group);
-    });
-  }
-
-  function hero() {
-    if (location.hash || scrollY > 100) return;
-    enter(document.querySelector('header'), 0, 6);
-    enter(document.querySelector('.hero .eyebrow'), 40, 8);
-    document.querySelectorAll('.headline-inner').forEach((line, index) => {
-      animate(line, [
-        { opacity: .65, transform: 'translateY(18px)', clipPath: 'inset(0 0 12% 0)' },
-        { opacity: 1, transform: 'none', clipPath: 'inset(-12% -3% -12% -3%)' }
-      ], { delay: 100 + index * 65, duration: 650 });
-    });
-    enter(document.querySelector('.hero-bottom p'), 220, 12);
-    enter(document.querySelector('.hero-bottom .round-link'), 275, 12);
-    animate(document.querySelector('.hero > img'), [{ opacity: .2, transform: 'translateY(18px)' }, { opacity: 1, transform: 'none' }], { delay: 300, duration: 700 });
-  }
-
   function ambientMotion() {
-    const toggle = document.querySelector('.motion-toggle');
-    if (!toggle || typeof Element.prototype.animate !== 'function' || typeof IntersectionObserver !== 'function') return;
+    if (typeof Element.prototype.animate !== 'function' || typeof IntersectionObserver !== 'function') return;
     const compact = matchMedia('(max-width: 767px), (pointer: coarse)');
-    const loops = new Map();
-    let paused = false;
-    try { paused = localStorage.getItem('dropdown-ambient-paused') === 'true'; } catch { /* Private browsing still works. */ }
-    const targets = document.querySelectorAll('.ambient-plane, .ambient-rail, .hero > img, .launch figure img, .brand-image > img');
-    function refresh() {
-      const disabled = paused || preference.matches || document.hidden;
-      loops.forEach(state => {
-        if (preference.matches) {
-          state.animation?.cancel();
-          state.animation = null;
-          state.element.style.willChange = '';
-          return;
-        }
-        if (!disabled && state.visible) {
-          if (!state.animation) {
-            const distance = compact.matches ? 5 : 12;
-            const background = state.element.matches('.ambient-plane, .ambient-rail');
-            const frames = background
-              ? [{ translate: `-${distance}px 0px` }, { translate: `${distance}px -${distance}px` }]
-              : [{ translate: '0px 0px' }, { translate: `0px -${distance * .65}px` }];
-            try {
-              // Independent translate leaves entrance transform/opacity untouched.
-              state.animation = state.element.animate(frames, {
-                duration: background ? 14000 : 11000, iterations: Infinity,
-                direction: 'alternate', easing: 'ease-in-out'
-              });
-              state.animation.id = 'ambient-motion';
-            } catch { return; }
-          }
-          state.element.style.willChange = 'translate';
-          state.animation.play();
-        } else {
-          state.animation?.pause();
-          state.element.style.willChange = '';
-        }
-      });
-      toggle.disabled = preference.matches;
-      toggle.setAttribute('aria-pressed', String(paused || preference.matches));
-      toggle.setAttribute('aria-label', preference.matches ? 'Ambient motion disabled by reduced motion preference' : 'Pause ambient motion');
-      toggle.querySelector('span').textContent = preference.matches ? 'Motion reduced' : paused ? 'Resume motion' : 'Pause motion';
-      toggle.querySelector('path').setAttribute('d', paused ? 'M4 2l10 6-10 6z' : 'M4 3h2v10H4zm6 0h2v10h-2z');
-    }
-    targets.forEach(element => loops.set(element, { element, animation: null, visible: false }));
-    const observer = new IntersectionObserver(entries => {
-      entries.forEach(entry => { loops.get(entry.target).visible = entry.isIntersecting; });
-      refresh();
-    }, { threshold: 0 });
-    targets.forEach(element => observer.observe(element));
-    toggle.hidden = false;
-    toggle.addEventListener('click', () => {
-      paused = !paused;
-      try { localStorage.setItem('dropdown-ambient-paused', String(paused)); } catch { /* Optional preference persistence. */ }
-      refresh();
+    const states = new Map();
+    document.querySelectorAll('.ambient-plane, .ambient-rail, .hero-depth > img, .brand-image > img').forEach(element => {
+      states.set(element, { element, animation: null, visible: false, complete: false });
     });
+    function refresh() {
+      states.forEach(state => {
+        if (preference.matches) {
+          state.animation?.cancel(); state.animation = null; state.complete = true;
+          state.element.style.willChange = ''; return;
+        }
+        if (state.complete) return;
+        if (!state.visible || document.hidden) {
+          state.animation?.pause(); state.element.style.willChange = ''; return;
+        }
+        if (!state.animation) {
+          const distance = compact.matches ? 3 : 7;
+          try {
+            // One short settle, then stillness: no continuous motion needs a pause control.
+            const animation = state.element.animate([
+              { translate: '0px 0px' }, { translate: `0px -${distance}px` }, { translate: '0px 0px' }
+            ], { duration: 4200, iterations: 1, easing: 'ease-in-out' });
+            animation.id = 'artwork-settle'; state.animation = animation;
+            animation.finished.then(() => {
+              state.complete = true; state.animation = null; state.element.style.willChange = '';
+            }, () => {});
+          } catch { state.complete = true; return; }
+        }
+        state.element.style.willChange = 'translate'; state.animation.play();
+      });
+    }
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => { states.get(entry.target).visible = entry.isIntersecting; }); refresh();
+    });
+    states.forEach(state => observer.observe(state.element));
     preference.addEventListener('change', refresh);
+    document.addEventListener('motionpreferencechange', refresh);
     document.addEventListener('visibilitychange', refresh);
     compact.addEventListener('change', () => {
-      loops.forEach(state => { state.animation?.cancel(); state.animation = null; });
-      refresh();
+      states.forEach(state => { state.animation?.cancel(); state.animation=null; state.complete=true; state.element.style.willChange=''; });
     });
-    refresh();
   }
 
   const header = document.querySelector('header');
   const progress = document.querySelector('.progress');
   let frame = 0;
   let scrollRange = 1;
+  const scenes = window.createMotionScenes?.({ animate, enter, tokens, preference });
   function updateScroll() {
     frame = 0;
+    scenes?.update(scrollY);
     header.classList.toggle('is-scrolled', scrollY > 12);
     progress.style.transform = `scaleX(${Math.min(1, Math.max(0, scrollY / scrollRange))})`;
   }
   function scheduleScroll() { if (!frame && !document.hidden) frame = requestAnimationFrame(updateScroll); }
   function measure() {
+    scenes?.measure();
     scrollRange = Math.max(1, document.documentElement.scrollHeight - innerHeight);
     document.documentElement.style.setProperty('--anchor-offset', `${header.offsetHeight + 24}px`);
     scheduleScroll();
@@ -271,7 +214,5 @@
   measure();
   window.SiteMotion = { animate, enter, filter, enhanceDetails, open: details => panels.get(details)?.set(true, true), tokens };
   enhanceDetails();
-  revealSections();
-  hero();
   ambientMotion();
 })();

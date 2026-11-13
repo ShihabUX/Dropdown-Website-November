@@ -1,7 +1,6 @@
 // Run against the local static server. Playwright is a QA tool, not a site dependency.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const base = process.env.TEST_URL || 'http://127.0.0.1:8090';
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox'] });
@@ -37,7 +36,9 @@ const base = process.env.TEST_URL || 'http://127.0.0.1:8090';
       assert(await row.evaluate(e=>e.open));
       assert.equal(await summary.getAttribute('aria-expanded'),'true');
       assert(await row.locator('.detail-panel').evaluate(p=>p.clientHeight>=p.scrollHeight-1),`clipped service ${i}`);
-      await page.keyboard.press('Enter'); await page.waitForTimeout(380); assert.equal(await row.evaluate(e=>e.open),false);
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(id=>!document.getElementById(id).open, `service-${i}`, {timeout:2000});
+      assert.equal(await row.evaluate(e=>e.open),false);
     }
     const first=page.locator('#service-0');
     await first.locator('summary').evaluate(el=>{el.click();setTimeout(()=>el.click(),50);setTimeout(()=>el.click(),100)});
@@ -46,16 +47,18 @@ const base = process.env.TEST_URL || 'http://127.0.0.1:8090';
     assert(await first.locator('.detail-panel').evaluate(p=>!p.style.height&&p.clientHeight>=p.scrollHeight-1));
     await page.setViewportSize({width,height:900});
     await first.locator('.choose').click();
-    assert.equal(await page.locator('#brief-service').inputValue(),await first.locator('h3').textContent());
+    assert.equal(await page.locator('#inquiry-service').inputValue(),await first.locator('h3').textContent());
     const faq=page.locator('.faq details').first(); await faq.locator('summary').focus();
     await page.keyboard.press('Space'); await page.waitForTimeout(300); assert(await faq.evaluate(e=>e.open));
     await page.keyboard.press('Space'); await page.waitForTimeout(300); assert.equal(await faq.evaluate(e=>e.open),false);
     await page.locator('[name="name"]').fill('Motion QA'); await page.locator('[name="business"]').fill('Dropdown Digital');
-    await page.locator('[name="goal"]').fill('Verify the local brief download.');
-    const downloading=page.waitForEvent('download'); await page.locator('#brief-form button').click();
-    const download=await downloading; assert.equal(download.suggestedFilename(),'dropdown-digital-project-brief.txt');
-    const text=fs.readFileSync(await download.path(),'utf8');assert(text.includes('Motion QA'));assert(text.includes('This brief has not been sent.'));
-    assert.equal(await page.locator('#form-status').textContent(),'Your brief is ready to download. No inquiry has been sent.');
+    await page.locator('[name="email"]').fill('qa@example.com');
+    await page.locator('[name="goal"]').fill('Verify inquiry submission.');
+    // Mock transport only: real Google persistence is covered separately, never fabricated here.
+    await page.route('**/api/inquiry', route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({ok:true})}));
+    await page.locator('#inquiry-form button').click();
+    await page.waitForFunction(()=>document.querySelector('#form-status').dataset.state==='success');
+    assert.equal(await page.locator('#form-status').textContent(),'Thank you. Your inquiry has been received. We’ll contact you using the details you provided.');
     await page.emulateMedia({reducedMotion:'reduce'});await page.waitForTimeout(100);
     assert.equal(await page.evaluate(()=>getComputedStyle(document.documentElement).scrollBehavior),'auto');
     await first.locator('summary').click();assert.equal(await first.evaluate(e=>e.open),false);
@@ -65,10 +68,9 @@ const base = process.env.TEST_URL || 'http://127.0.0.1:8090';
     await page.emulateMedia({reducedMotion:'no-preference'});
     await page.locator('[data-filter="all"]').click();await page.waitForTimeout(600);
     await page.locator('footer').scrollIntoViewIfNeeded();await page.waitForTimeout(900);
-    await page.locator('.motion-toggle').click();await page.waitForTimeout(100);
-    assert.equal(await page.locator('.motion-toggle').getAttribute('aria-pressed'),'true');
+    assert.equal(await page.locator('.motion-toggle').count(),0);
     assert.equal(await page.evaluate(()=>document.getAnimations().filter(a=>a.playState==='running').length),0);
-    assert.deepEqual(errors,[]);console.log(`PASS ${width}px: filters, rapid clicks, all service panels, deep links, FAQ keyboard, form download, reduced motion, assets`);
+    assert.deepEqual(errors,[]);console.log(`PASS ${width}px: filters, rapid clicks, all service panels, deep links, FAQ keyboard, inquiry form (mocked transport), reduced motion, assets`);
     await page.close();
   }
   const noJS=await browser.newPage({javaScriptEnabled:false});await noJS.goto(base);
