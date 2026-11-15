@@ -149,7 +149,7 @@
     if (typeof Element.prototype.animate !== 'function' || typeof IntersectionObserver !== 'function') return;
     const compact = matchMedia('(max-width: 767px), (pointer: coarse)');
     const states = new Map();
-    document.querySelectorAll('.ambient-plane, .ambient-rail, .hero-depth > img, .brand-image > img').forEach(element => {
+    document.querySelectorAll('.ambient-plane, .ambient-rail, .brand-image > img').forEach(element => {
       states.set(element, { element, animation: null, visible: false, complete: false });
     });
     function refresh() {

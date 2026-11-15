@@ -73,7 +73,7 @@ ZIP extract করে ভেতরের public folder ও vercel.json সহ �
 
 The site remains plain HTML/CSS/JavaScript with no runtime dependencies and no build step. `public/motion.js` and `public/motion-scenes.js` progressively enhance the page with the Web Animations API and IntersectionObserver. CSS motion tokens live at the end of `public/style.css`.
 
-- Hero sequence completes in about one second; section groups reveal once. Artwork and architectural accents settle once over 4.2 seconds, then remain still. The statement ribbon follows native scrolling. Desktop-only pointer depth and modest parallax affect artwork wrappers. There is no pause button or endless animation.
+- Hero sequence completes in about one second; section groups reveal once. Artwork and architectural accents settle once over 4.2 seconds, then remain still. The statement ribbon moves continuously while visible, independently of scrolling. Desktop-only pointer depth and modest parallax affect artwork wrappers. There is no pause button; reduced motion stops the ribbon, and hidden or offscreen playback is paused.
 - Filters cancel stale transitions, update `aria-pressed`, remove hidden rows from keyboard navigation and reposition visible rows.
 - Native service/FAQ details animate measured panel heights; resizing or reduced-motion changes settle to intrinsic dimensions. Native details remain usable without JavaScript.
 - Header/progress updates are scheduled once per animation frame; scroll remains native.
@@ -128,7 +128,7 @@ The resulting HTML embeds styles, scripts and original image assets. Download/op
 `motion-scenes.js` builds reusable masked heading, highlight wipe, image entrance, rule draw and staggered-group patterns on the shared native animation primitives. The existing accordion/filter logic stays in `motion.js`, while `app.js` retains the inquiry-submission behavior.
 
 - Header/hero: sequential logo, navigation and contact entrance; masked headline lines, lime highlight wipe, artwork entrance and supporting CTA. Desktop pointer depth is limited to 4px horizontally / 3px vertically and 0.4 degrees; touch devices skip it.
-- Statement strip: two identically sized groups form a ribbon that moves only with native scroll position, with capped travel and gently rotating lime separators. A decorative liquid-glass lens moves in the opposite direction behind the unscaled text; curved reflections and a slight change in shape follow the same scroll progress. It reverses without drift and stops with scrolling. Only the original text group is exposed to assistive technology. Reduced motion hides the lens and restores a stationary, fully readable strip. Small/touch screens omit the lens blur; browsers without backdrop-filter retain its gradient and rim. The scrolled header uses a lightly frosted surface.
+- Statement strip: two identical groups form a seamless, automatic ribbon using one Web Animations API transform loop. It moves at 22px/s on small/touch screens and 32px/s on desktop, independently of scrolling. The glass accent and lime separators stay static; the lens has no backdrop blur. Playback pauses offscreen and in hidden tabs, resumes without resetting, and preserves its loop phase on resize. Only the original group is exposed to assistive technology. Reduced motion or unavailable animation APIs restore a readable stationary strip. The scrolled header uses a lightly frosted surface.
 - Intro: label first, then the three heading lines and supporting description. It reveals once rather than scrubbing or replaying while the visitor reads.
 - Services: heading and pill sequences, progressive row/divider entrances, hover feedback and the existing measured-height panels. A filter action finishes outstanding row entrances to avoid double animation.
 - Launch: sequential three-line headline, highlight wipe, copy and CTA, image entrance and a desktop-only 18px parallax range on the figure wrapper.
@@ -138,7 +138,7 @@ The resulting HTML embeds styles, scripts and original image assets. Download/op
 
 No GSAP, Lenis, React, Next.js migration or other dependency was introduced. There is no `npm run build` because this repository intentionally has no package manifest or bundler. `vercel.json` preserves the static output and empty build/install commands; the inquiry API has a 30-second duration limit.
 
-Additional QA: `scripts/test-editorial-scenes.cjs` checks 320, 375, 430, 768, 1024 and 1440px layouts, reversible ribbon/glass movement, stationary-scroll behavior, masked text, pointer/touch policy, live reduced-motion changes and no-JavaScript content. Run it with the same Playwright/Chromium environment variables as the other browser suites. Performance scores and physical-device Safari behavior have not been measured.
+Additional QA: `scripts/test-editorial-scenes.cjs` checks 320, 375, 430, 768, 1024 and 1440px layouts, automatic ribbon movement, seamless repetition, offscreen pausing and stationary glass, masked text, pointer/touch policy, live reduced-motion changes and no-JavaScript content. Run it with the same Playwright/Chromium environment variables as the other browser suites. Performance scores and physical-device Safari behavior have not been measured.
 
 
 ### Clients and footer

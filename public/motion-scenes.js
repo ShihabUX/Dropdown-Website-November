@@ -1,7 +1,6 @@
 /* Choreography for the existing static sections. Motion primitives live in motion.js. */
 window.createMotionScenes = ({ animate, enter, tokens, preference }) => {
   const compact = matchMedia('(max-width: 767px), (pointer: coarse)');
-  const pointerCapable = matchMedia('(hover: hover) and (pointer: fine) and (min-width: 1024px)');
   const clamp = value => Math.max(0, Math.min(1, value));
   const watched = new Map();
   const rowEntrances = new Map();
@@ -110,15 +109,10 @@ window.createMotionScenes = ({ animate, enter, tokens, preference }) => {
     enter(header.querySelector('.wordmark'),0,6);
     header.querySelectorAll('nav a').forEach((el,i)=>enter(el,50+i*55,6));
     enter(header.querySelector('.nav-cta'),210,6);
-    enter(document.querySelector('.hero .eyebrow'),80,8);
-    document.querySelectorAll('.headline-inner').forEach((el,i)=>line(el,130+i*100));
-    highlight(document.querySelector('.hero .highlight-plane'),300);
-    image(document.querySelector('.hero-depth > img'),250);
-    enter(document.querySelector('.hero-bottom p'),350,12);
-    enter(document.querySelector('.hero-bottom .round-link'),410,12);
+
   }
 
-  // The ribbon now follows native scroll instead of looping on a timer.
+  // One compositor-driven loop, independent of scroll input and main-thread frames.
   const strip=document.querySelector('.strip');
   const track=strip.querySelector('.strip-track');
   const group=document.createElement('div');group.className='marquee-group';
@@ -126,90 +120,68 @@ window.createMotionScenes = ({ animate, enter, tokens, preference }) => {
   const duplicate=group.cloneNode(true);duplicate.setAttribute('aria-hidden','true');duplicate.inert=true;track.append(duplicate);
   const glass=document.createElement('span');
   glass.className='strip-glass';glass.setAttribute('aria-hidden','true');strip.prepend(glass);
-  const sparks=[...track.querySelectorAll('i')];
-  let groupWidth=0, stripWidth=0, glassWidth=0, ribbonProgress=0, observedReduced=preference.matches;
-  function renderRibbon(progress) {
-    ribbonProgress=progress;
-    if(preference.matches){
-      track.style.removeProperty('transform');glass.removeAttribute('style');
-      sparks.forEach(spark=>spark.style.removeProperty('transform'));return;
+  let ribbon=null, groupWidth=0, duration=0, inView=typeof IntersectionObserver!=='function', observedReduced=preference.matches;
+  function syncRibbon() {
+    if(!ribbon)return;
+    if(preference.matches||document.hidden||!inView){
+      ribbon.pause();track.style.removeProperty('will-change');
+    }else{
+      if(ribbon.playState!=='running')ribbon.play();
+      track.style.willChange='transform';
     }
-    // Directly tied to scroll: reverses naturally, with no timer or momentum loop.
-    // The duplicate prevents empty edges; text is never scaled with the glass.
-    const travel=Math.min(groupWidth*.65,compact.matches?480:680);
-    track.style.transform=`translateX(${-progress*travel}px)`;
-    const swell=Math.sin(progress*Math.PI);
-    glass.style.transform=`translate3d(${progress*(stripWidth+glassWidth*.2)-glassWidth*.6}px, ${-swell*2}px, 0) scale(${1+swell*.1}, ${1-swell*.06})`;
-    glass.style.setProperty('--glass-sweep',`${(progress-.5)*28}px`);
-    sparks.forEach(spark=>spark.style.transform=`rotate(${progress*80}deg)`);
   }
   function sizeMarquee() {
     if(observedReduced!==preference.matches){
       observedReduced=preference.matches;
       document.dispatchEvent(new Event('motionpreferencechange'));
     }
-    strip.classList.toggle('marquee-ready',!preference.matches);
-    duplicate.hidden=preference.matches;
-    groupWidth=group.getBoundingClientRect().width;
-    stripWidth=strip.clientWidth;glassWidth=glass.offsetWidth;
-    renderRibbon(ribbonProgress);
+    const enabled=!preference.matches&&typeof track.animate==='function';
+    strip.classList.toggle('marquee-ready',enabled);
+    duplicate.hidden=!enabled;
+    if(!enabled){
+      ribbon?.cancel();ribbon=null;groupWidth=0;duration=0;
+      track.style.removeProperty('will-change');return;
+    }
+    const width=group.getBoundingClientRect().width;
+    const nextDuration=width/(compact.matches?22:32)*1000;
+    if(width<=0)return;
+    if(ribbon&&Math.abs(width-groupWidth)<.25&&Math.abs(nextDuration-duration)<1){syncRibbon();return;}
+    // Keep the position within the loop when a breakpoint or font changes its width.
+    const phase=ribbon&&duration?((Number(ribbon.currentTime)||0)%duration)/duration:0;
+    ribbon?.cancel();groupWidth=width;duration=nextDuration;
+    try{
+      ribbon=track.animate([{transform:'translate3d(0,0,0)'},{transform:`translate3d(${-groupWidth}px,0,0)`}],{duration,iterations:Infinity,easing:'linear'});
+      ribbon.pause();ribbon.currentTime=phase*duration;syncRibbon();
+    }catch{
+      ribbon=null;strip.classList.remove('marquee-ready');duplicate.hidden=true;
+      track.style.removeProperty('will-change');
+    }
   }
-  preference.addEventListener('change',()=>{sizeMarquee();resetDepth()});
-  document.addEventListener('motionpreferencechange',resetDepth);
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)resetDepth()});
+  if(typeof IntersectionObserver==='function'){
+    new IntersectionObserver(entries=>{inView=entries[0].isIntersecting;syncRibbon()},{rootMargin:'80px'}).observe(strip);
+  }
+  preference.addEventListener('change',sizeMarquee);
+  compact.addEventListener('change',sizeMarquee);
+  document.addEventListener('visibilitychange',syncRibbon);
   if(typeof ResizeObserver==='function'){
-    const sizing=new ResizeObserver(sizeMarquee);sizing.observe(group);sizing.observe(track);
+    const sizing=new ResizeObserver(sizeMarquee);sizing.observe(group);sizing.observe(strip);
   }
+  document.fonts?.ready.then(sizeMarquee);
   sizeMarquee();
 
-  // Native scroll and desktop pointer depth share one independent transform layer.
-  const heroSection=document.querySelector('.hero');
-  const heroImage=heroSection.querySelector('.hero-depth');
-  const headline=heroSection.querySelector('h1');
+  // Process emphasis remains driven by native page scrolling.
   const stages=[...process.querySelectorAll('.steps article')];
-  let geometry={}, lastPosition=scrollY, targetX=0,targetY=0,x=0,y=0,pointerFrame=0;
-  function resetDepth() {
-    targetX=targetY=x=y=0;cancelAnimationFrame(pointerFrame);pointerFrame=0;
-    heroImage.style.removeProperty('transform');heroImage.style.removeProperty('rotate');
-    headline.style.removeProperty('translate');
-  }
-  function renderPointer() {
-    pointerFrame=0;
-    if(!pointerCapable.matches||preference.matches||document.hidden){resetDepth();return;}
-    x+=(targetX-x)*.14;y+=(targetY-y)*.14;
-    // CSS rotate/translate are separate from the intro's WAAPI transform and ambient translate.
-    heroImage.style.rotate=`${x*.1}deg`;
-    heroImage.style.transform=`translate(${x}px,${y+clamp(lastPosition/geometry.heroHeight)*16}px)`;
-    if(Math.abs(targetX-x)+Math.abs(targetY-y)>.03)pointerFrame=requestAnimationFrame(renderPointer);
-  }
-  heroSection.addEventListener('pointermove',event=>{
-    if(!pointerCapable.matches||preference.matches||document.hidden)return;
-    targetX=(event.clientX/innerWidth-.5)*8;
-    targetY=(event.clientY/innerHeight-.5)*6;
-    if(!pointerFrame)pointerFrame=requestAnimationFrame(renderPointer);
-  },{passive:true});
-  heroSection.addEventListener('pointerleave',()=>{targetX=targetY=0;if(pointerCapable.matches&&!pointerFrame)pointerFrame=requestAnimationFrame(renderPointer)});
-  pointerCapable.addEventListener('change',resetDepth);
+  let geometry={};
   function measure() {
-    geometry.stripTop=strip.getBoundingClientRect().top+scrollY;
-    geometry.stripHeight=strip.offsetHeight;
-    geometry.heroHeight=heroSection.offsetHeight;
     geometry.processTop=process.getBoundingClientRect().top+scrollY;
     geometry.processHeight=process.offsetHeight;
     sizeMarquee();
   }
   function update(position) {
-    lastPosition=position;
-    if(!preference.matches){
-      const progress=clamp((position+innerHeight-geometry.stripTop)/(innerHeight+geometry.stripHeight));
-      renderRibbon(progress);
-    }else renderRibbon(0);
-    if(preference.matches){resetDepth();stages.forEach(el=>el.style.removeProperty('--stage-progress'));return;}
+    if(preference.matches){stages.forEach(el=>el.style.removeProperty('--stage-progress'));return;}
     const p=clamp((position+innerHeight*.8-geometry.processTop)/(geometry.processHeight+innerHeight*.2));
     stages.forEach((el,i)=>el.style.setProperty('--stage-progress',String(clamp(p*stages.length-i))));
-    if(!pointerCapable.matches)return;
-    headline.style.translate=`0px ${clamp(position/geometry.heroHeight)*6}px`;
-    heroImage.style.transform=`translate(${x}px,${y+clamp(position/geometry.heroHeight)*16}px)`;
+
   }
   hero();
   return {measure,update,finishRows(){
