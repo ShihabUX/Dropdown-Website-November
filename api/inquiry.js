@@ -1,5 +1,5 @@
 // Vercel Node function. Credentials stay on the server; no runtime packages required.
-const {createSign, randomUUID} = require('node:crypto');
+const {createSign, createHash, randomUUID} = require('node:crypto');
 const config = require('../config/inquiries.json');
 const services = require('../public/services.json');
 const HEADERS = ['Submitted at (UTC)', 'Name', 'Email', 'Phone', 'Business / brand', 'Service', 'Project goals', 'Submission ID'];
@@ -72,6 +72,93 @@ async function saveInquiry(data, token) {
   const saved = await google(`/values/${encodeURIComponent(tab+'!A:H')}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, 'POST', {values:[row]});
   if (saved.updates?.updatedRows !== 1) throw new Error('save-unconfirmed');
 }
+
+function sha256(str) {
+  if (!str) return null;
+  return createHash('sha256').update(String(str).trim().toLowerCase()).digest('hex');
+}
+
+function hashPhone(phone) {
+  if (!phone) return null;
+  const digits = String(phone).replace(/\D/g, '');
+  if (!digits) return null;
+  return createHash('sha256').update(digits).digest('hex');
+}
+
+function parseCookies(header = '') {
+  const cookies = {};
+  for (const part of header.split(';')) {
+    const [key, ...vals] = part.trim().split('=');
+    if (key && vals.length) cookies[key] = decodeURIComponent(vals.join('='));
+  }
+  return cookies;
+}
+
+async function sendMetaConversion(data, req) {
+  const token = process.env.META_CAPI_TOKEN;
+  const pixelId = process.env.META_PIXEL_ID || '4578079359101986';
+  if (!token || !pixelId) return;
+
+  const cookies = parseCookies(req.headers?.cookie || '');
+  const firstName = (data.name || '').trim().split(/\s+/)[0] || '';
+  const ip = (req.headers?.['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || '';
+  const userAgent = req.headers?.['user-agent'] || '';
+
+  const userData = {
+    client_ip_address: ip || undefined,
+    client_user_agent: userAgent || undefined,
+    em: [sha256(data.email)],
+    fn: firstName ? [sha256(firstName)] : undefined,
+    ph: data.phone ? [hashPhone(data.phone)].filter(Boolean) : undefined,
+    fbp: cookies._fbp || undefined,
+    fbc: cookies._fbc || undefined
+  };
+
+  for (const key of Object.keys(userData)) {
+    if (userData[key] === undefined || (Array.isArray(userData[key]) && userData[key].length === 0)) {
+      delete userData[key];
+    }
+  }
+
+  const payload = {
+    data: [
+      {
+        event_name: 'Lead',
+        event_time: Math.floor(Date.now() / 1000),
+        event_id: data.submissionId,
+        event_source_url: req.headers?.referer || `https://${req.headers?.host || 'dropdowndigital.com'}/#brief`,
+        action_source: 'website',
+        user_data: userData,
+        custom_data: {
+          content_name: data.service,
+          business: data.business,
+          currency: 'BDT',
+          value: 0
+        }
+      }
+    ]
+  };
+
+  if (process.env.META_TEST_EVENT_CODE) {
+    payload.test_event_code = process.env.META_TEST_EVENT_CODE;
+  }
+
+  try {
+    const response = await fetch(`https://graph.facebook.com/v21.0/${encodeURIComponent(pixelId)}/events?access_token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(6000)
+    });
+    if (!response.ok) {
+      const errBody = await response.text().catch(() => '');
+      console.warn('Meta CAPI returned non-OK status:', response.status, errBody);
+    }
+  } catch (error) {
+    console.warn('Meta CAPI delivery failed:', error.message);
+  }
+}
+
 module.exports = async function inquiry(req, res) {
   if (req.method !== 'POST') { res.setHeader('Allow','POST'); return reply(res,405,{ok:false,message:'Use the inquiry form to submit your details.'}); }
   try {
@@ -90,6 +177,7 @@ module.exports = async function inquiry(req, res) {
   if (!email || !key) return reply(res,503,{ok:false,message:'The inquiry form is temporarily unavailable. Your details have not been sent. Please try again later.'});
   try {
     await saveInquiry(data, await accessToken(email,key));
+    await sendMetaConversion(data, req);
     return reply(res,200,{ok:true,submissionId:data.submissionId});
   } catch (error) {
     // Never log submitted contact details, keys, tokens or upstream response bodies.

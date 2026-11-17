@@ -76,6 +76,13 @@ inquiryForm.addEventListener('submit', async event => {
     }
     formStatus.textContent = 'Thank you. Your inquiry has been received. We’ll contact you using the details you provided.';
     formStatus.dataset.state = 'success';
+    if (typeof window.fbq === 'function') {
+      window.fbq('track', 'Lead', {
+        content_name: payload.service,
+        currency: 'BDT',
+        value: 0
+      }, { eventID: payload.submissionId });
+    }
     inquiryForm.reset();
     submissionId = '';
     window.SiteMotion?.enter(formStatus, 0, 4);
